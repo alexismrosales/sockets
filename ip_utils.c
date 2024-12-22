@@ -6,6 +6,8 @@
 
 #define BUFFER_SIZE 512
 
+// request_ip Pregunta al servidor DHCP por una IP disponible en caso que haya
+// disponibilidad
 char *request_ip(char *ip, int port) {
   int client_socket;
   struct sockaddr_in server_addr;
@@ -50,6 +52,8 @@ char *request_ip(char *ip, int port) {
   return ip_assigned;
 }
 
+// set_ip se encarga de asignar la IP dada por el server DHCP en una interfaz de
+// red dada
 void set_ip(const char *ip, const char *interface) {
   char command[100];
   snprintf(command, sizeof(command), "sudo ip addr add %s/24 dev %s", ip,
@@ -68,9 +72,10 @@ void set_ip(const char *ip, const char *interface) {
   }
 }
 
+// remove_ip Para efectos prácticos es conveniente remover la interfaz de red al
+// final del ejercicio ya que no tendra ningún uso una vez acabando
 void remove_ip(const char *ip, const char *interface) {
   char command[256];
-
   // Comando para eliminar la IP
   snprintf(command, sizeof(command), "sudo ip addr del %s/24 dev %s", ip,
            interface);

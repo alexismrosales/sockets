@@ -29,6 +29,7 @@ typedef struct {
   int server_socket;
 } thread_data_t;
 
+// Se reciben los datos del cliente
 void *handle_client(void *arg) {
   thread_data_t *data = (thread_data_t *)arg;
   int buffer_size = col_size * sizeof(int);

@@ -54,7 +54,7 @@ char **assign_ip(const char *ip_initial, int max_users) {
 // Manejo del cliente donde se le asignas las ips correspondientes
 void *handle_client(void *arg) {
   thread_data_t *data = (thread_data_t *)arg;
-  printf("Processing request...\n");
+  printf("\nProcessing request...\n");
   // En caso que ya se hayan superado el máximo de ips disponibles
   if (ip_pool_count < max_ips) {
     const char *response = ip_pool_global[max_ips - ip_pool_count - 1];
@@ -63,7 +63,7 @@ void *handle_client(void *arg) {
                sizeof(data->client_addr)) < 0) {
       perror("Error sending response to client.");
     } else {
-      printf("IP sent to client: %s\n", response);
+      printf("IP sent to client: %s generated.\n", response);
     }
     // Liberar el espacio
     free(ip_pool_global[max_ips - ip_pool_count - 1]);

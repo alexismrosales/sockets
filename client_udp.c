@@ -107,6 +107,7 @@ int main(int argc, char *argv[]) {
   for (int i = 0; i < 3; i++) {
     multiplication *= arr[i];
   }
+  printf("Multiplication:%d\n", multiplication);
   server_addr.sin_port = htons(PORT2); // Reasignando el puerto
 
   // Enviar los datos del arreglo
@@ -121,6 +122,5 @@ int main(int argc, char *argv[]) {
 
   // Removing interface
   remove_ip(ip, "lo");
-  close(client_socket);
   return 0;
 }

@@ -33,9 +33,13 @@ void *handle_client(void *arg) {
   thread_data_t *data = (thread_data_t *)arg;
   int buffer_size = col_size * sizeof(int);
   char *buffer = malloc(buffer_size);
+  if (!buffer) {
+    perror("Error allocating memory for buffer");
+    free(data);
+    pthread_exit(NULL);
+  }
+
   printf("Processing request...\n");
-  memcpy(buffer, matrix[current_row],
-         buffer_size); // Copiar los datos del arreglo al buffer
 
   int row_to_send = -1;
 
@@ -47,41 +51,43 @@ void *handle_client(void *arg) {
   }
   pthread_mutex_unlock(&row_mutex);
 
-  // En caso que se pida una fila y ya no haya datos mandar mensaje
   if (row_to_send != -1) {
     // Enviar el tamaño de la fila primero
     int size = col_size;
-    if (sendto(data->server_socket, &size, sizeof(size), 0,
-               (struct sockaddr *)&data->client_addr,
-               sizeof(data->client_addr)) < 0) {
+    if (send(data->server_socket, &size, sizeof(size), 0) < 0) {
       perror("Error sending size to client");
       free(buffer);
       free(data);
+      close(data->server_socket);
       pthread_exit(NULL);
     }
 
+    // Copiar los datos de la fila al buffer
+    memcpy(buffer, matrix[row_to_send], buffer_size);
+
     // Enviar la fila serializada
-    if (sendto(data->server_socket, buffer, buffer_size, 0,
-               (struct sockaddr *)&data->client_addr,
-               sizeof(data->client_addr)) < 0) {
+    if (send(data->server_socket, buffer, buffer_size, 0) < 0) {
       perror("Error sending row to client");
     } else {
       printf("Row %d sent to client.\n", row_to_send);
     }
   } else {
+    // Enviar mensaje indicando que no hay más datos disponibles
     const char *no_data_msg = "NO_DATA_AVAILABLE";
-    if (sendto(data->server_socket, no_data_msg, strlen(no_data_msg), 0,
-               (struct sockaddr *)&data->client_addr,
-               sizeof(data->client_addr)) < 0) {
-      perror("Error sending avalaibility message");
+    if (send(data->server_socket, no_data_msg, strlen(no_data_msg), 0) < 0) {
+      perror("Error sending availability message");
     } else {
-      printf("Message sent to client.\n");
+      printf("Message sent to client: NO_DATA_AVAILABLE\n");
     }
   }
+
+  // Liberar recursos
   free(buffer);
   free(data);
+  close(data->server_socket); // Cerrar el socket del cliente
   pthread_exit(NULL);
 }
+
 int main(int argc, char *argv[]) {
   // En caso que falten argumentos
   if (argc != 2) {
@@ -91,16 +97,16 @@ int main(int argc, char *argv[]) {
   // Recibiendo argumentos
   int port = atoi(argv[1]);
 
-  printf("UDP config:\n");
+  printf("TCP config:\n");
   printf("Port: %d\n", port);
 
-  int server_socket;
+  int server_socket, client_socket;
   struct sockaddr_in server_addr, client_addr;
   char buffer[BUFFER_SIZE];
   socklen_t addr_len = sizeof(client_addr);
 
-  // Se crea el socket UDP
-  if ((server_socket = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+  // Se crea el socket TCP
+  if ((server_socket = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
     perror("Error creating socket");
     exit(EXIT_FAILURE);
   }
@@ -111,7 +117,7 @@ int main(int argc, char *argv[]) {
   server_addr.sin_port = htons(port);
   server_addr.sin_addr.s_addr = INADDR_ANY;
 
-  // Enlace del socket con la dirección ip
+  // Enlace del socket con la dirección IP
   if (bind(server_socket, (struct sockaddr *)&server_addr,
            sizeof(server_addr)) < 0) {
     perror("Error binding socket");
@@ -119,55 +125,73 @@ int main(int argc, char *argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  // Obtener la dirección IP real usando getsockname
-  printf("Server listening in IP: 127.0.0.1, Port: %d\n", port);
+  // Escuchar conexiones entrantes
+  if (listen(server_socket, 5) < 0) {
+    perror("Error listening");
+    close(server_socket);
+    exit(EXIT_FAILURE);
+  }
 
-  // Empezando a escuchar clientes
+  printf("Server listening on IP: 127.0.0.1, Port: %d\n", port);
+
+  // Empezando a aceptar clientes
   while (1) {
-    // Recibir mensajes de clientes
-    memset(buffer, 0, BUFFER_SIZE); // Resetear el buffer
-    if (recvfrom(server_socket, buffer, BUFFER_SIZE, 0,
-                 (struct sockaddr *)&client_addr, &addr_len) < 0) {
-      perror("Error recieving data");
+    client_socket =
+        accept(server_socket, (struct sockaddr *)&client_addr, &addr_len);
+    if (client_socket < 0) {
+      perror("Error accepting connection");
       continue;
     }
 
-    // Removiendo el salto de linea
+    // Recibir mensaje del cliente
+    memset(buffer, 0, BUFFER_SIZE); // Resetear el buffer
+    if (recv(client_socket, buffer, BUFFER_SIZE, 0) < 0) {
+      perror("Error receiving data");
+      close(client_socket);
+      continue;
+    }
+
+    // Removiendo el salto de línea
     buffer[strcspn(buffer, "\n")] = '\0';
     if (strcmp(buffer, "SEND_DATA") != 0) {
       printf("Not a valid request: %s is not a valid message.\n", buffer);
+      close(client_socket);
       continue;
     } else {
-      printf("Request recieved succesfully.\n");
+      printf("Request received successfully.\n");
     }
 
-    // Creando los datos con el struct y asignandolos
+    // Creando los datos con el struct y asignándolos
     thread_data_t *data = malloc(sizeof(thread_data_t));
     if (data == NULL) {
-      perror("Error assignning memory");
+      perror("Error assigning memory");
+      close(client_socket);
       continue;
     }
 
     memcpy(data->message, buffer, BUFFER_SIZE);
+    data->server_socket = client_socket; // Usar el socket del cliente
     data->client_addr = client_addr;
-    data->server_socket = server_socket;
 
     // Obtener la IP del cliente
     char client_ip[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
 
     printf("Received result from client IP: %s\n", client_ip);
+
     // Creando el hilo
     pthread_t thread_id;
     if (pthread_create(&thread_id, NULL, handle_client, (void *)data) != 0) {
       perror("Error creating thread");
       free(data);
+      close(client_socket);
       continue;
     }
 
     // Desvinculando el hilo
     pthread_detach(thread_id);
   }
+
   close(server_socket);
   return 0;
 }
